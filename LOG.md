@@ -1,6 +1,6 @@
 # Журнал итераций с AI (ПР5)
 
-Инструмент: Claude Code. Ссылка на прототип: (GitHub Pages — появится после публикации)
+Инструмент: Claude Code. Ссылка на прототип: https://ekarpova869.github.io/uyut-groop-prototype/ (репозиторий: https://github.com/ekarpova869/uyut-groop-prototype)
 Задача и требования для AI — TASK.md (шаги 1–3 ПР5).
 
 | № | Дата | Запрос к AI | Что получили | Найденные ошибки и несоответствия | Что сделали |
