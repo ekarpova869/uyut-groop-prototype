@@ -108,6 +108,19 @@ textarea { width: 100%; min-height: 64px; padding: 10px; border: 1px solid var(-
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 select { padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: inherit; }
 .empty { padding: 22px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 14px; }
+.pill.cancelled { color: var(--muted); background: var(--line); }
+.pill.blocked { color: var(--late); background: var(--late-bg); }
+input[type="text"] { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: inherit; }
+.counter { font-size: 12px; color: var(--muted); text-align: right; }
+.panel { display: grid; gap: 12px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; min-width: 0; }
+.panel h2 { font-size: 20px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
+.fields label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.table-wrap { overflow-x: auto; }
+.report { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.report th, .report td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.report th { color: var(--muted); font-weight: 600; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+.stars-static { color: var(--brass); letter-spacing: 2px; }
 .toplink { color: var(--muted); font-size: 13px; }
 @media (prefers-reduced-motion: no-preference) { .card { transition: border-color .2s; } }
 </style>
@@ -117,39 +130,44 @@ select { padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; 
 
 <script>
 /* ======================= Справочники ======================= */
-// Отель и проживание гостя. В реальной системе эти данные приходят из CRM отеля.
+// Отель и проживание гостя. В реальной системе эти данные приходят из CRM отеля (NFR-12).
 const HOTEL = "Уют Groop · Покровка";
 
-// Услуги MVP (инкремент 1): у каждой — служба, которой она автоматически направляется, и норматив выполнения в минутах (BR-02).
-// Для неисправностей норматива нет (срок зависит от поломки) — контролируется только реакция 7 минут (BR-01).
+// Услуги MVP (инкремент 1): у каждой — служба, которой она автоматически направляется (FR-08),
+// и норматив выполнения в минутах (BR-02). Для неисправностей норматива нет — контролируется только реакция 7 минут (BR-01).
 const SERVICES = {
   cleaning: { title: "Уборка", dept: "housekeeping", norm: 60, icon: '<path d="M4 20h16M7 20l2-9h6l2 9M12 4v7"/>' },
   towels:   { title: "Полотенца", dept: "housekeeping", norm: 15, icon: '<rect x="5" y="4" width="14" height="16" rx="2"/><path d="M5 9h14M9 4v16"/>' },
   repair:   { title: "Неисправность", dept: "engineering", norm: null, icon: '<path d="M14 6a4 4 0 0 0-5 5l-5 5 3 3 5-5a4 4 0 0 0 5-5l-2 2-3-3z"/>' },
 };
 const DEPTS = { housekeeping: "Хаускипинг", engineering: "Инженерная служба" };
-const STAFF = [
-  { id: "maria", name: "Мария", dept: "housekeeping", role: "горничная" },
-  { id: "olga",  name: "Ольга", dept: "housekeeping", role: "горничная" },
-  { id: "igor",  name: "Игорь", dept: "engineering",  role: "инженер" },
-];
-const REACTION_LIMIT_MIN = 7; // BR-01: запрос должен быть принят не позднее 7 минут
-const STATUS = { sent: "Отправлен", accepted: "Принят", done: "Выполнен" };
+const DEPT_ROLE = { housekeeping: "горничная", engineering: "инженер" };
+const REACTION_LIMIT_MIN = 7;   // BR-01: запрос должен быть принят не позднее 7 минут
+const COMMENT_MAX = 300;        // FR-05: комментарий до 300 символов
+const STATUS = { sent: "Отправлен", accepted: "Принят", done: "Выполнен", cancelled: "Отменен" };
+const OPEN = ["sent", "accepted"]; // открытые запросы
 
 /* ======================= Хранилище ======================= */
-// Все данные лежат в localStorage браузера. Оба окна (гость и сотрудник) читают одно и то же хранилище.
-const KEY = "uyut-groop-demo-v1";
+// Все данные лежат в localStorage браузера. Окна гостя и сотрудника читают одно и то же хранилище.
+const KEY = "uyut-groop-demo-v2";
 let memory = null; // запасной вариант, если браузер не дает пользоваться localStorage
 
 function initialState() {
   const now = Date.now();
   return {
     guest: { name: "Анна", room: "305", checkedIn: true },
-    clockShiftMin: 0, // «перемотка» времени для демонстрации просрочки
+    otherRooms: ["212", "418"], // другие заселенные номера — для запроса от имени гостя (FR-16)
+    clockShiftMin: 0,           // «перемотка» времени для демонстрации просрочки
+    // Сотрудники теперь хранятся в данных: управляющий может добавить или заблокировать сотрудника (FR-21, FR-22)
+    staff: [
+      { id: "maria", name: "Мария", dept: "housekeeping", blocked: false },
+      { id: "olga",  name: "Ольга", dept: "housekeeping", blocked: false },
+      { id: "igor",  name: "Игорь", dept: "engineering",  blocked: false },
+    ],
     requests: [
       // Пример запроса другого гостя — чтобы панель сотрудника не была пустой при первом открытии
       { id: "demo-1", service: "towels", room: "212", comment: "Два больших полотенца", status: "sent",
-        createdAt: now - 3 * 60000, acceptedAt: null, doneAt: null, assignee: null, rating: null, example: true },
+        createdAt: now - 3 * 60000, acceptedAt: null, doneAt: null, assignee: null, rating: null, by: "guest", example: true },
     ],
   };
 }
@@ -162,30 +180,35 @@ function save(state) {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
   render();
 }
-// Событие storage приходит, когда данные изменило ДРУГОЕ окно — так статус доходит до гостя без перезагрузки.
+// Событие storage приходит, когда данные изменило ДРУГОЕ окно — так статус доходит до гостя без перезагрузки (FR-09)
 window.addEventListener("storage", e => { if (e.key === KEY) render(); });
 
 /* ======================= Бизнес-правила ======================= */
 // Текущее время с учетом «перемотки» для демо
 function now(state) { return Date.now() + state.clockShiftMin * 60000; }
 function minutesSince(state, t) { return Math.max(0, Math.floor((now(state) - t) / 60000)); }
+const person = (state, id) => state.staff.find(s => s.id === id);
+const staffName = (state, id) => (person(state, id) || {}).name || "";
+const occupiedRooms = state => [...(state.guest.checkedIn ? [state.guest.room] : []), ...state.otherRooms];
 
-// Просрочка реакции: запрос все еще «Отправлен» дольше 7 минут (US-04, BR-01)
+// FR-14: просрочка реакции — запрос все еще «Отправлен» дольше 7 минут
 function isLate(state, r) { return r.status === "sent" && minutesSince(state, r.createdAt) >= REACTION_LIMIT_MIN; }
 
-// Дубль: у этого номера уже есть невыполненный запрос того же вида (US-01, сценарий 3)
-function findOpenDuplicate(state, service) {
-  return state.requests.find(r => r.room === state.guest.room && r.service === service && r.status !== "done");
+// FR-06: у номера уже есть невыполненный запрос на ту же услугу (отмененные и выполненные не считаются)
+function findOpenDuplicate(state, room, service) {
+  return state.requests.find(r => r.room === room && r.service === service && OPEN.includes(r.status));
 }
 
-// Создание запроса гостем. Служба определяется автоматически по виду услуги — администратор ничего не распределяет.
-function createRequest(service, comment) {
+// FR-05, FR-08: создание запроса. Служба определяется справочником услуг — администратор ничего не распределяет.
+// by = "guest" (гость с телефона) или "admin" (FR-16: администратор от имени гостя).
+function createRequest(room, service, comment, by) {
   const state = load();
-  if (!state.guest.checkedIn) return { error: "checkedOut" };       // US-01, сценарий 2
-  const dup = findOpenDuplicate(state, service);
-  if (dup) return { error: "duplicate", request: dup };              // US-01, сценарий 3
-  const r = { id: "r" + Date.now(), service, room: state.guest.room, comment: comment.trim(), status: "sent",
-              createdAt: now(state), acceptedAt: null, doneAt: null, assignee: null, rating: null };
+  if (by === "guest" && !state.guest.checkedIn) return { error: "checkedOut" };      // FR-03
+  if (by === "admin" && !occupiedRooms(state).includes(room)) return { error: "noStay" };
+  const dup = findOpenDuplicate(state, room, service);
+  if (dup) return { error: "duplicate", request: dup };                              // FR-06
+  const r = { id: "r" + Date.now(), service, room, comment: comment.trim().slice(0, COMMENT_MAX), status: "sent",
+              createdAt: now(state), acceptedAt: null, doneAt: null, assignee: null, rating: null, by };
   state.requests.unshift(r);
   save(state);
   return { request: r };
@@ -193,44 +216,102 @@ function createRequest(service, comment) {
 function addComment(id, text) {
   const state = load();
   const r = state.requests.find(x => x.id === id);
-  if (r && text.trim()) { r.comment = (r.comment ? r.comment + " · " : "") + text.trim(); save(state); }
+  if (r && text.trim()) { r.comment = ((r.comment ? r.comment + " · " : "") + text.trim()).slice(0, COMMENT_MAX); save(state); }
 }
-// Сотрудник принимает запрос (US-03, сценарий 1) или администратор передает его сотруднику (US-04)
+// FR-07: гость отменяет запрос, пока его никто не принял
+function cancelRequest(id) {
+  const state = load();
+  const r = state.requests.find(x => x.id === id);
+  if (r && r.status === "sent") { r.status = "cancelled"; r.cancelledAt = now(state); save(state); }
+}
+// FR-11: сотрудник принимает запрос; FR-15: администратор назначает его сотруднику.
+// Принятый запрос не может принять другой сотрудник (UC-02, альтернативный поток А1).
 function accept(id, staffId) {
   const state = load();
   const r = state.requests.find(x => x.id === id);
-  if (r && r.status === "sent") { r.status = "accepted"; r.assignee = staffId; r.acceptedAt = now(state); save(state); }
+  if (!r || r.status !== "sent") return { error: "taken", by: r ? staffName(state, r.assignee) : "" };
+  if (person(state, staffId)?.blocked) return { error: "blocked" };
+  r.status = "accepted"; r.assignee = staffId; r.acceptedAt = now(state);
+  save(state);
+  return {};
 }
-// Сотрудник отмечает выполнение (US-03, сценарий 2)
-function complete(id) {
+// FR-12: отметить выполнение может только сотрудник, за которым закреплен запрос
+function complete(id, staffId) {
   const state = load();
   const r = state.requests.find(x => x.id === id);
-  if (r && r.status === "accepted") { r.status = "done"; r.doneAt = now(state); save(state); }
+  if (r && r.status === "accepted" && r.assignee === staffId) { r.status = "done"; r.doneAt = now(state); save(state); }
 }
-// Гость оценивает выполненный запрос (US-02, BR-06)
+// FR-17: одна оценка на выполненный запрос
 function rate(id, value) {
   const state = load();
   const r = state.requests.find(x => x.id === id);
-  if (r && r.status === "done") { r.rating = value; save(state); }
+  if (r && r.status === "done" && !r.rating) { r.rating = value; save(state); }
+}
+// FR-21: управляющий добавляет сотрудника; FR-22: блокирует доступ
+function addStaff(name, dept) {
+  const state = load();
+  state.staff.push({ id: "s" + Date.now(), name: name.trim(), dept, blocked: false });
+  save(state);
+}
+function toggleBlock(id) {
+  const state = load();
+  const p = person(state, id);
+  if (p) { p.blocked = !p.blocked; save(state); }
+}
+// FR-18: показатели отчета — считаются из запросов и оценок, без ручного сведения Excel
+function report(state, sinceMs) {
+  const rows = state.requests.filter(r => r.createdAt >= sinceMs && r.status !== "cancelled");
+  const avg = a => a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null;
+  const accepted = rows.filter(r => r.acceptedAt);
+  const done = rows.filter(r => r.doneAt);
+  const normed = done.filter(r => SERVICES[r.service].norm);
+  const inNorm = normed.filter(r => (r.doneAt - r.createdAt) / 60000 <= SERVICES[r.service].norm);
+  const rated = rows.filter(r => r.rating);
+  return {
+    byService: Object.keys(SERVICES).map(k => [SERVICES[k].title, rows.filter(r => r.service === k).length]),
+    total: rows.length,
+    reaction: avg(accepted.map(r => (r.acceptedAt - r.createdAt) / 60000)),
+    execution: avg(done.map(r => (r.doneAt - r.createdAt) / 60000)),
+    inNormShare: normed.length ? Math.round(100 * inNorm.length / normed.length) : null,
+    rating: rated.length ? (rated.reduce((x, r) => x + r.rating, 0) / rated.length).toFixed(1) : null,
+  };
 }
 
 /* ======================= Отрисовка ======================= */
 const app = document.getElementById("app");
-const ui = { picked: null, comment: "", message: null, role: "maria" }; // состояние интерфейса, не данных
+// Состояние интерфейса (не данных): выбранная услуга, роль, сообщения и значения полей ввода
+const ui = { picked: null, message: null, role: "maria", period: "day", fields: {} };
+const field = (id, def = "") => (id in ui.fields ? ui.fields[id] : def);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const staffName = id => (STAFF.find(s => s.id === id) || {}).name || "";
 const icon = key => `<svg viewBox="0 0 24 24" aria-hidden="true">${SERVICES[key].icon}</svg>`;
+const fmt = (v, unit = "") => (v === null ? "—" : v + unit);
 
 function pill(state, r) {
   if (isLate(state, r)) return `<span class="pill late">Просрочен</span>`;
   return `<span class="pill ${r.status}">${STATUS[r.status]}</span>`;
 }
 
+// Перерисовка не должна сбивать ввод: запоминаем, в каком поле курсор, и возвращаем его после отрисовки
 function render() {
+  const active = document.activeElement;
+  const focusId = active && active.id && app.contains(active) ? active.id : null;
+  const sel = focusId && "selectionStart" in active ? [active.selectionStart, active.selectionEnd] : null;
   const view = location.hash.replace("#", "");
   if (view === "guest") renderGuest(load());
   else if (view === "staff") renderStaff(load());
   else renderStart();
+  // общий обработчик: значения всех полей с data-keep сохраняются в ui.fields
+  app.querySelectorAll("[data-keep]").forEach(el => {
+    el.addEventListener("input", () => {
+      ui.fields[el.id] = el.value;
+      const c = app.querySelector(`[data-counter="${el.id}"]`);
+      if (c) c.textContent = `${el.value.length} / ${COMMENT_MAX}`;
+    });
+  });
+  if (focusId) {
+    const el = document.getElementById(focusId);
+    if (el) { el.focus(); if (sel && el.setSelectionRange) { try { el.setSelectionRange(sel[0], sel[1]); } catch (e) {} } }
+  }
 }
 
 function renderStart() {
@@ -240,12 +321,20 @@ function renderStart() {
       <h1>Цифровой гостевой сервис</h1>
       <div class="entries">
         <a class="entry" href="#guest"><strong>Я гость</strong><span>Номер 305: заказать уборку, полотенца или вызвать инженера</span></a>
-        <a class="entry" href="#staff"><strong>Я сотрудник</strong><span>Горничная, инженер или ресепшен: принять и выполнить запросы</span></a>
+        <a class="entry" href="#staff"><strong>Я сотрудник</strong><span>Горничная, инженер, ресепшен, управляющий или директор по операциям</span></a>
       </div>
       <p class="hint">Для демонстрации откройте вход гостя и вход сотрудника в двух окнах браузера — изменения появляются в обоих окнах сразу.</p>
     </div>`;
 }
 
+function commentBox(id, placeholder) {
+  const v = field(id);
+  return `
+    <textarea id="${id}" data-keep maxlength="${COMMENT_MAX}" placeholder="${placeholder}">${esc(v)}</textarea>
+    <div class="counter" data-counter="${id}">${v.length} / ${COMMENT_MAX}</div>`;
+}
+
+/* ---------- Гость ---------- */
 function renderGuest(state) {
   const g = state.guest;
   const mine = state.requests.filter(r => r.room === g.room);
@@ -266,14 +355,14 @@ function renderGuest(state) {
             ${icon(k)}${SERVICES[k].title}
           </button>`).join("")}
       </div>
-      ${picked ? `
+      ${picked && g.checkedIn ? `
         <form class="sheet" id="order-form">
           <h2>${SERVICES[picked].title}</h2>
           <label class="hint" for="order-comment">Комментарий (необязательно)</label>
-          <textarea id="order-comment" placeholder="${picked === "repair" ? "Например: не работает кондиционер" : picked === "towels" ? "Например: два больших полотенца" : "Например: после 15:00"}">${esc(ui.comment)}</textarea>
+          ${commentBox("order-comment", picked === "repair" ? "Например: не работает кондиционер" : picked === "towels" ? "Например: два больших полотенца" : "Например: после 15:00")}
           <div class="row">
             <button class="primary" type="submit">Отправить</button>
-            <button class="ghost" type="button" data-cancel>Отмена</button>
+            <button class="ghost" type="button" data-cancel-form>Отмена</button>
           </div>
         </form>` : ""}
       <h2 class="section-title">Мои запросы</h2>
@@ -282,84 +371,96 @@ function renderGuest(state) {
       </div>
     </div>`;
 
-  app.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { ui.picked = b.dataset.pick; ui.comment = ""; ui.message = null; render(); });
-  const cancel = app.querySelector("[data-cancel]");
-  if (cancel) cancel.onclick = () => { ui.picked = null; render(); };
+  app.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => {
+    ui.picked = b.dataset.pick; ui.fields["order-comment"] = ""; ui.message = null; render();
+  });
+  const cancelForm = app.querySelector("[data-cancel-form]");
+  if (cancelForm) cancelForm.onclick = () => { ui.picked = null; render(); };
   const form = document.getElementById("order-form");
-  if (form) {
-    const ta = document.getElementById("order-comment");
-    ta.oninput = () => ui.comment = ta.value;
-    form.onsubmit = e => {
-      e.preventDefault();
-      const res = createRequest(ui.picked, ui.comment);
-      if (res.error === "duplicate") {
-        ui.message = { kind: "", html: `Запрос «${SERVICES[res.request.service].title}» уже в работе. Можно дополнить его комментарием — он придет той же службе.
-          <div class="row" style="margin-top:8px"><button class="ghost" type="button" id="add-to-dup">Дополнить запрос</button></div>` };
-        ui.dupId = res.request.id;
-      } else if (res.error === "checkedOut") {
-        ui.message = { kind: "bad", html: "Сервис доступен только во время проживания." };
-      } else {
-        ui.message = { kind: "good", html: `Запрос отправлен в службу «${DEPTS[SERVICES[ui.picked].dept]}». Статус обновится здесь.` };
-        ui.picked = null; ui.comment = "";
-      }
-      render();
-    };
-  }
+  if (form) form.onsubmit = e => {
+    e.preventDefault();
+    const comment = field("order-comment");
+    const res = createRequest(g.room, ui.picked, comment, "guest");
+    if (res.error === "duplicate") {
+      ui.message = { kind: "", html: `Запрос «${SERVICES[res.request.service].title}» уже в работе. Можно дополнить его комментарием — он придет той же службе.
+        <div class="row" style="margin-top:8px"><button class="ghost" type="button" id="add-to-dup">Дополнить запрос</button></div>` };
+      ui.dupId = res.request.id;
+    } else if (res.error === "checkedOut") {
+      ui.message = { kind: "bad", html: "Сервис доступен только во время проживания." };
+    } else {
+      ui.message = { kind: "good", html: `Запрос отправлен в службу «${DEPTS[SERVICES[ui.picked].dept]}». Статус обновится здесь.` };
+      ui.picked = null; ui.fields["order-comment"] = "";
+    }
+    render();
+  };
   const addDup = document.getElementById("add-to-dup");
   if (addDup) addDup.onclick = () => {
-    addComment(ui.dupId, ui.comment || "Повторная просьба гостя");
+    addComment(ui.dupId, field("order-comment") || "Повторная просьба гостя");
     ui.message = { kind: "good", html: "Комментарий добавлен к запросу, который уже в работе." };
-    ui.picked = null; ui.comment = ""; render();
+    ui.picked = null; ui.fields["order-comment"] = ""; render();
   };
   app.querySelectorAll("[data-rate]").forEach(b => b.onclick = () => rate(b.dataset.id, Number(b.dataset.rate)));
+  app.querySelectorAll("[data-guest-cancel]").forEach(b => b.onclick = () => cancelRequest(b.dataset.guestCancel));
 }
 
 function guestCard(state, r) {
   const s = SERVICES[r.service];
   let line = "Ожидает, когда сотрудник примет запрос";
-  if (r.status === "accepted") line = `${esc(staffName(r.assignee))} уже занимается вашим запросом`;
-  if (r.status === "done") line = `Выполнено · ${esc(staffName(r.assignee))}`;
+  if (r.status === "accepted") line = `${esc(staffName(state, r.assignee))} уже занимается вашим запросом`;
+  if (r.status === "done") line = `Выполнено · ${esc(staffName(state, r.assignee))}`;
+  if (r.status === "cancelled") line = "Вы отменили этот запрос";
+  let extra = "";
+  if (r.status === "sent") extra = `<div class="row"><button class="ghost" data-guest-cancel="${r.id}">Отменить запрос</button></div>`;
+  if (r.status === "done") extra = r.rating
+    ? `<div class="hint">Ваша оценка: <span class="stars-static">${"★".repeat(r.rating)}</span> Спасибо!</div>`
+    : `<div class="hint">Оцените, пожалуйста, выполнение</div>
+       <div class="stars">${[1, 2, 3, 4, 5].map(v => `<button class="star" data-rate="${v}" data-id="${r.id}" aria-label="Оценка ${v}">★</button>`).join("")}</div>`;
   return `
     <div class="card">
       <div class="card-top"><span class="card-title">${s.title}</span><span class="pill ${r.status}">${STATUS[r.status]}</span></div>
       <p>${line}</p>
       ${r.comment ? `<p>«${esc(r.comment)}»</p>` : ""}
-      ${r.status === "done" ? `
-        <div class="hint">${r.rating ? "Спасибо за оценку!" : "Оцените, пожалуйста, выполнение"}</div>
-        <div class="stars">${[1,2,3,4,5].map(v => `<button class="star" data-rate="${v}" data-id="${r.id}" aria-pressed="${r.rating === v}" aria-label="Оценка ${v}">★</button>`).join("")}</div>` : ""}
+      ${extra}
     </div>`;
 }
 
+/* ---------- Сотрудник ---------- */
 function renderStaff(state) {
-  const roles = [...STAFF.map(s => ({ id: s.id, label: `${s.name} · ${s.role}` })), { id: "admin", label: "Ресепшен" }];
-  const isAdmin = ui.role === "admin";
-  const me = STAFF.find(s => s.id === ui.role);
-  // Сотрудник видит только запросы своей службы, администратор — все открытые запросы отеля
-  const visible = state.requests.filter(r => r.status !== "done" && (isAdmin || SERVICES[r.service].dept === me.dept));
-  visible.sort((a, b) => (isLate(state, b) - isLate(state, a)) || (a.createdAt - b.createdAt));
-  const lateCount = state.requests.filter(r => isLate(state, r)).length;
-  const doneToday = state.requests.filter(r => r.status === "done");
+  const roles = [
+    ...state.staff.map(s => ({ id: s.id, label: `${s.name} · ${DEPT_ROLE[s.dept]}${s.blocked ? " (заблокирован)" : ""}` })),
+    { id: "admin", label: "Ресепшен" }, { id: "manager", label: "Управляющий" }, { id: "director", label: "Директор по операциям" },
+  ];
+  if (!roles.some(r => r.id === ui.role)) ui.role = "admin";
+  const me = person(state, ui.role);
+  let title, main;
+  if (ui.role === "admin") { title = "Ресепшен: все открытые запросы"; main = adminView(state); }
+  else if (ui.role === "manager") { title = "Управляющий: сотрудники отеля"; main = managerView(state); }
+  else if (ui.role === "director") { title = "Директор по операциям: отчет"; main = directorView(state); }
+  else if (me.blocked) {
+    title = `${esc(me.name)}, ${DEPTS[me.dept].toLowerCase()}`;
+    main = `<div class="notice bad">Доступ к панели заблокирован управляющим отелем. Обратитесь к управляющему.</div>`;
+  } else { title = `${esc(me.name)}, ${DEPTS[me.dept].toLowerCase()}`; main = workerView(state, me); }
 
+  const open = state.requests.filter(r => OPEN.includes(r.status));
   app.innerHTML = `
     <a class="toplink" href="#">← Выбор входа</a>
     <div class="staff-head">
       <div>
         <div class="eyebrow">${esc(HOTEL)} · панель персонала</div>
-        <h1>${isAdmin ? "Ресепшен: все открытые запросы" : `${esc(me.name)}, ${DEPTS[me.dept].toLowerCase()}`}</h1>
+        <h1>${title}</h1>
       </div>
       <div class="roles" role="group" aria-label="Кто вы">
-        ${roles.map(r => `<button class="chip-btn" data-role="${r.id}" aria-pressed="${ui.role === r.id}">${r.label}</button>`).join("")}
+        ${roles.map(r => `<button class="chip-btn" data-role="${r.id}" aria-pressed="${ui.role === r.id}">${esc(r.label)}</button>`).join("")}
       </div>
     </div>
+    ${ui.message ? `<div class="notice ${ui.message.kind}">${ui.message.html}</div>` : ""}
     <div class="staff-grid">
-      <div class="list">
-        ${visible.length ? visible.map(r => staffCard(state, r, isAdmin)).join("") : `<div class="empty">Новых запросов нет. Отправьте запрос из окна гостя — он появится здесь.</div>`}
-      </div>
+      <div class="list">${main}</div>
       <aside class="side">
         <h3>Сводка смены</h3>
-        <div class="stat"><span>Открытые запросы</span><span class="mono">${state.requests.filter(r => r.status !== "done").length}</span></div>
-        <div class="stat"><span>Просрочена реакция (&gt; ${REACTION_LIMIT_MIN} мин)</span><span class="mono">${lateCount}</span></div>
-        <div class="stat"><span>Выполнено</span><span class="mono">${doneToday.length}</span></div>
+        <div class="stat"><span>Открытые запросы</span><span class="mono">${open.length}</span></div>
+        <div class="stat"><span>Просрочена реакция (&gt; ${REACTION_LIMIT_MIN} мин)</span><span class="mono">${state.requests.filter(r => isLate(state, r)).length}</span></div>
+        <div class="stat"><span>Выполнено</span><span class="mono">${state.requests.filter(r => r.status === "done").length}</span></div>
         <h3>Демонстрация</h3>
         <button class="ghost" id="shift">Перемотать время на 5 минут</button>
         <label class="row hint"><input type="checkbox" id="checkout" ${state.guest.checkedIn ? "" : "checked"}> Гость номера 305 выехал</label>
@@ -367,35 +468,147 @@ function renderStaff(state) {
       </aside>
     </div>`;
 
-  app.querySelectorAll("[data-role]").forEach(b => b.onclick = () => { ui.role = b.dataset.role; render(); });
-  app.querySelectorAll("[data-accept]").forEach(b => b.onclick = () => accept(b.dataset.accept, ui.role));
-  app.querySelectorAll("[data-done]").forEach(b => b.onclick = () => complete(b.dataset.done));
+  app.querySelectorAll("[data-role]").forEach(b => b.onclick = () => { ui.role = b.dataset.role; ui.message = null; render(); });
+  app.querySelectorAll("[data-accept]").forEach(b => b.onclick = () => {
+    const res = accept(b.dataset.accept, ui.role);
+    if (res.error === "taken") { ui.message = { kind: "", html: `Этот запрос уже принял другой сотрудник${res.by ? ` (${esc(res.by)})` : ""}.` }; render(); }
+  });
+  app.querySelectorAll("[data-done]").forEach(b => b.onclick = () => complete(b.dataset.done, ui.role));
   app.querySelectorAll("[data-assign]").forEach(sel => sel.onchange = () => { if (sel.value) accept(sel.dataset.assign, sel.value); });
+  app.querySelectorAll("[data-block]").forEach(b => b.onclick = () => toggleBlock(b.dataset.block));
+  bindForms(state);
   document.getElementById("shift").onclick = () => { const s = load(); s.clockShiftMin += 5; save(s); };
   document.getElementById("checkout").onchange = e => { const s = load(); s.guest.checkedIn = !e.target.checked; save(s); };
-  document.getElementById("reset").onclick = () => { memory = null; save(initialState()); };
+  document.getElementById("reset").onclick = () => { memory = null; ui.fields = {}; ui.message = null; save(initialState()); };
+}
+
+// FR-10: сотрудник видит только открытые запросы своей службы, от самых давних к новым
+function workerView(state, me) {
+  const list = state.requests
+    .filter(r => OPEN.includes(r.status) && SERVICES[r.service].dept === me.dept)
+    .sort((a, b) => a.createdAt - b.createdAt);
+  return list.length ? list.map(r => staffCard(state, r, false)).join("")
+    : `<div class="empty">Новых запросов нет. Отправьте запрос из окна гостя — он появится здесь.</div>`;
+}
+
+// FR-13, FR-14: все открытые запросы отеля, просроченные — в начале; FR-16: запрос от имени гостя
+function adminView(state) {
+  const list = state.requests.filter(r => OPEN.includes(r.status))
+    .sort((a, b) => (isLate(state, b) - isLate(state, a)) || (a.createdAt - b.createdAt));
+  const rooms = occupiedRooms(state);
+  return `
+    <form class="panel" id="admin-form">
+      <h2>Запрос от имени гостя</h2>
+      <div class="hint">Если гость позвонил или подошел к стойке — запрос тоже попадает в систему.</div>
+      <div class="fields">
+        <label>Номер
+          <select id="admin-room" data-keep>${rooms.map(n => `<option value="${n}" ${field("admin-room", rooms[0]) === n ? "selected" : ""}>${n}</option>`).join("")}</select>
+        </label>
+        <label>Услуга
+          <select id="admin-service" data-keep>${Object.keys(SERVICES).map(k => `<option value="${k}" ${field("admin-service", "towels") === k ? "selected" : ""}>${SERVICES[k].title}</option>`).join("")}</select>
+        </label>
+      </div>
+      ${commentBox("admin-comment", "Комментарий со слов гостя (необязательно)")}
+      <div class="row"><button class="primary" type="submit">Создать запрос</button></div>
+    </form>
+    ${list.length ? list.map(r => staffCard(state, r, true)).join("") : `<div class="empty">Открытых запросов нет.</div>`}`;
+}
+
+// FR-21, FR-22: управляющий добавляет и блокирует сотрудников
+function managerView(state) {
+  return `
+    <div class="panel">
+      <h2>Сотрудники отеля</h2>
+      ${state.staff.map(p => `
+        <div class="card-top">
+          <span>${esc(p.name)} · <span class="hint">${DEPTS[p.dept]}</span> ${p.blocked ? `<span class="pill blocked">Заблокирован</span>` : ""}</span>
+          <button class="ghost" data-block="${p.id}">${p.blocked ? "Разблокировать" : "Заблокировать"}</button>
+        </div>`).join("")}
+    </div>
+    <form class="panel" id="staff-form">
+      <h2>Добавить сотрудника</h2>
+      <div class="fields">
+        <label>Имя <input type="text" id="new-name" data-keep maxlength="40" value="${esc(field("new-name"))}" placeholder="Например: Светлана"></label>
+        <label>Служба
+          <select id="new-dept" data-keep>${Object.keys(DEPTS).map(k => `<option value="${k}" ${field("new-dept", "housekeeping") === k ? "selected" : ""}>${DEPTS[k]}</option>`).join("")}</select>
+        </label>
+      </div>
+      <div class="row"><button class="primary" type="submit">Добавить</button></div>
+    </form>`;
+}
+
+// FR-18: отчет за выбранный период
+function directorView(state) {
+  const since = ui.period === "day" ? now(state) - 24 * 3600000 : 0;
+  const rep = report(state, since);
+  return `
+    <div class="panel">
+      <div class="card-top">
+        <h2>Отчет по отелям</h2>
+        <label class="hint">Период
+          <select id="period">
+            <option value="day" ${ui.period === "day" ? "selected" : ""}>Последние 24 часа</option>
+            <option value="all" ${ui.period === "all" ? "selected" : ""}>Весь период</option>
+          </select>
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table class="report">
+          <thead><tr><th>Отель</th><th>Запросов</th>${rep.byService.map(([t]) => `<th>${t}</th>`).join("")}<th>Реакция, мин</th><th>Выполнение, мин</th><th>В нормативе</th><th>Оценка</th></tr></thead>
+          <tbody><tr><td>${esc(HOTEL.split(" · ")[1])} (пилот)</td><td>${rep.total}</td>${rep.byService.map(([, n]) => `<td>${n}</td>`).join("")}
+            <td>${fmt(rep.reaction)}</td><td>${fmt(rep.execution)}</td><td>${fmt(rep.inNormShare, "%")}</td><td>${fmt(rep.rating)}</td></tr></tbody>
+        </table>
+      </div>
+      <div class="hint">Остальные 7 отелей появятся в отчете после тиражирования. Отмененные запросы не учитываются; неисправности не входят в «долю в нормативе» — для них норматива нет.</div>
+    </div>`;
+}
+
+function bindForms(state) {
+  const adminForm = document.getElementById("admin-form");
+  if (adminForm) adminForm.onsubmit = e => {
+    e.preventDefault();
+    const rooms = occupiedRooms(state);
+    const room = field("admin-room", rooms[0]);
+    const service = field("admin-service", "towels");
+    const res = createRequest(room, service, field("admin-comment"), "admin");
+    if (res.error === "duplicate") ui.message = { kind: "", html: `У номера ${esc(room)} уже есть открытый запрос «${SERVICES[service].title}».` };
+    else if (res.error === "noStay") ui.message = { kind: "bad", html: `Номер ${esc(room)} сейчас не заселен.` };
+    else { ui.message = { kind: "good", html: `Запрос для номера ${esc(room)} создан и передан в службу «${DEPTS[SERVICES[service].dept]}».` }; ui.fields["admin-comment"] = ""; }
+    render();
+  };
+  const staffForm = document.getElementById("staff-form");
+  if (staffForm) staffForm.onsubmit = e => {
+    e.preventDefault();
+    const name = field("new-name").trim();
+    if (!name) { ui.message = { kind: "bad", html: "Введите имя сотрудника." }; render(); return; }
+    addStaff(name, field("new-dept", "housekeeping"));
+    ui.message = { kind: "good", html: `${esc(name)} добавлен(а). Теперь можно войти в панель под этим именем.` };
+    ui.fields["new-name"] = ""; render();
+  };
+  const period = document.getElementById("period");
+  if (period) period.onchange = () => { ui.period = period.value; render(); };
 }
 
 function staffCard(state, r, isAdmin) {
   const s = SERVICES[r.service];
   const mins = minutesSince(state, r.createdAt);
   const late = isLate(state, r);
-  const deptStaff = STAFF.filter(p => p.dept === s.dept);
+  const deptStaff = state.staff.filter(p => p.dept === s.dept && !p.blocked);
   let actions = "";
   if (r.status === "sent" && !isAdmin) actions = `<button class="primary" data-accept="${r.id}">Принять</button>`;
   if (r.status === "sent" && isAdmin) actions = `
     <label class="hint" for="assign-${r.id}">Передать:</label>
     <select id="assign-${r.id}" data-assign="${r.id}"><option value="">выбрать сотрудника</option>
-      ${deptStaff.map(p => `<option value="${p.id}">${p.name}</option>`).join("")}</select>`;
+      ${deptStaff.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select>`;
   if (r.status === "accepted" && r.assignee === ui.role) actions = `<button class="primary" data-done="${r.id}">Выполнено</button>`;
-  if (r.status === "accepted" && r.assignee !== ui.role) actions = `<span class="hint">Принял: ${esc(staffName(r.assignee))}</span>`;
+  if (r.status === "accepted" && r.assignee !== ui.role) actions = `<span class="hint">Принял(а): ${esc(staffName(state, r.assignee))}</span>`;
   return `
     <div class="card ${late ? "late" : ""}">
       <div class="card-top">
         <span class="card-title">Номер <span class="mono">${esc(r.room)}</span> · ${s.title}</span>
         ${pill(state, r)}
       </div>
-      <p>${DEPTS[s.dept]} · отправлен <span class="mono">${mins}</span> мин назад · ${s.norm ? `норматив ${s.norm} мин` : "норматив не установлен"}${r.example ? " · пример" : ""}</p>
+      <p>${DEPTS[s.dept]} · отправлен <span class="mono">${mins}</span> мин назад · ${s.norm ? `норматив ${s.norm} мин` : "норматив не установлен"}${r.by === "admin" ? " · создан ресепшеном" : ""}${r.example ? " · пример" : ""}</p>
       ${r.comment ? `<p>«${esc(r.comment)}»</p>` : ""}
       ${actions ? `<div class="actions">${actions}</div>` : ""}
     </div>`;
