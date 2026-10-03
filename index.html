@@ -120,11 +120,12 @@ select { padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; 
 // Отель и проживание гостя. В реальной системе эти данные приходят из CRM отеля.
 const HOTEL = "Уют Groop · Покровка";
 
-// Услуги MVP (инкремент 1): у каждой — служба, которой она автоматически направляется, и норматив в минутах (BR-02).
+// Услуги MVP (инкремент 1): у каждой — служба, которой она автоматически направляется, и норматив выполнения в минутах (BR-02).
+// Для неисправностей норматива нет (срок зависит от поломки) — контролируется только реакция 7 минут (BR-01).
 const SERVICES = {
-  cleaning: { title: "Уборка", dept: "housekeeping", norm: 40, icon: '<path d="M4 20h16M7 20l2-9h6l2 9M12 4v7"/>' },
+  cleaning: { title: "Уборка", dept: "housekeeping", norm: 60, icon: '<path d="M4 20h16M7 20l2-9h6l2 9M12 4v7"/>' },
   towels:   { title: "Полотенца", dept: "housekeeping", norm: 15, icon: '<rect x="5" y="4" width="14" height="16" rx="2"/><path d="M5 9h14M9 4v16"/>' },
-  repair:   { title: "Неисправность", dept: "engineering", norm: 60, icon: '<path d="M14 6a4 4 0 0 0-5 5l-5 5 3 3 5-5a4 4 0 0 0 5-5l-2 2-3-3z"/>' },
+  repair:   { title: "Неисправность", dept: "engineering", norm: null, icon: '<path d="M14 6a4 4 0 0 0-5 5l-5 5 3 3 5-5a4 4 0 0 0 5-5l-2 2-3-3z"/>' },
 };
 const DEPTS = { housekeeping: "Хаускипинг", engineering: "Инженерная служба" };
 const STAFF = [
@@ -394,7 +395,7 @@ function staffCard(state, r, isAdmin) {
         <span class="card-title">Номер <span class="mono">${esc(r.room)}</span> · ${s.title}</span>
         ${pill(state, r)}
       </div>
-      <p>${DEPTS[s.dept]} · отправлен <span class="mono">${mins}</span> мин назад · норматив ${s.norm} мин${r.example ? " · пример" : ""}</p>
+      <p>${DEPTS[s.dept]} · отправлен <span class="mono">${mins}</span> мин назад · ${s.norm ? `норматив ${s.norm} мин` : "норматив не установлен"}${r.example ? " · пример" : ""}</p>
       ${r.comment ? `<p>«${esc(r.comment)}»</p>` : ""}
       ${actions ? `<div class="actions">${actions}</div>` : ""}
     </div>`;
