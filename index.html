@@ -58,6 +58,11 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .entry strong { font-family: var(--font-display); font-weight: 400; font-size: 22px; color: var(--brand); }
 .entry span { color: var(--muted); font-size: 14px; }
 .entry:hover { border-color: var(--brass); }
+.qr-card { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; padding: 16px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.qr-card svg { width: 104px; height: 104px; display: block; color: var(--ink); }
+.qr-card strong { display: block; margin-bottom: 4px; }
+.qr-card span { color: var(--muted); font-size: 14px; }
+@media (max-width: 420px) { .qr-card { grid-template-columns: 1fr; justify-items: center; text-align: center; } }
 .hint { color: var(--muted); font-size: 13px; }
 
 /* --- Гость --- */
@@ -83,6 +88,7 @@ textarea { width: 100%; min-height: 64px; padding: 10px; border: 1px solid var(-
 .list { display: grid; gap: 10px; }
 .card { display: grid; gap: 6px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; min-width: 0; }
 .card.late { border-color: var(--late); }
+.over-norm { color: var(--late); font-weight: 700; }
 .card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .card-title { font-weight: 700; }
 .card p { margin: 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
@@ -130,10 +136,11 @@ input[type="text"] { width: 100%; padding: 9px 10px; border: 1px solid var(--lin
 
 <script>
 /* ======================= Справочники ======================= */
-// Отель и проживание гостя. В реальной системе эти данные приходят из CRM отеля (NFR-12).
+// FR-02: гость привязан к отелю и номеру — руками номер не вводится.
+// В реальной системе эти данные приходят из CRM отеля (NFR-12); в прототипе заданы заранее.
 const HOTEL = "Уют Groop · Покровка";
 
-// Услуги MVP (инкремент 1): у каждой — служба, которой она автоматически направляется (FR-08),
+// FR-04: каталог услуг. Услуги MVP (инкремент 1): у каждой — служба, которой она автоматически направляется (FR-08),
 // и норматив выполнения в минутах (BR-02). Для неисправностей норматива нет — контролируется только реакция 7 минут (BR-01).
 const SERVICES = {
   cleaning: { title: "Уборка", dept: "housekeeping", norm: 60, icon: '<path d="M4 20h16M7 20l2-9h6l2 9M12 4v7"/>' },
@@ -193,6 +200,16 @@ const occupiedRooms = state => [...(state.guest.checkedIn ? [state.guest.room] :
 
 // FR-14: просрочка реакции — запрос все еще «Отправлен» дольше 7 минут
 function isLate(state, r) { return r.status === "sent" && minutesSince(state, r.createdAt) >= REACTION_LIMIT_MIN; }
+
+// BR-02: выход за норматив выполнения — открытый запрос висит дольше норматива своей услуги.
+// У неисправностей норматива нет, для них контролируется только реакция 7 минут (BR-01).
+function isOverNorm(state, r) {
+  const norm = SERVICES[r.service].norm;
+  return !!norm && OPEN.includes(r.status) && minutesSince(state, r.createdAt) >= norm;
+}
+
+// Запрос, на который ресепшену нужно смотреть в первую очередь
+function needsAttention(state, r) { return isLate(state, r) || isOverNorm(state, r); }
 
 // FR-06: у номера уже есть невыполненный запрос на ту же услугу (отмененные и выполненные не считаются)
 function findOpenDuplicate(state, room, service) {
@@ -319,6 +336,13 @@ function renderStart() {
     <div class="start">
       <div class="eyebrow">Прототип · ${esc(HOTEL)}</div>
       <h1>Цифровой гостевой сервис</h1>
+      <div class="qr-card">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 37 37"><path stroke="currentColor" d="M2 2.5h7m6 0h4m1 0h2m2 0h2m2 0h7m-33 1h1m5 0h1m2 0h2m2 0h3m2 0h1m1 0h2m1 0h1m2 0h1m5 0h1m-33 1h1m1 0h3m1 0h1m2 0h1m3 0h1m1 0h1m1 0h1m1 0h2m1 0h3m1 0h1m1 0h3m1 0h1m-33 1h1m1 0h3m1 0h1m2 0h1m1 0h4m1 0h1m1 0h2m2 0h3m1 0h1m1 0h3m1 0h1m-33 1h1m1 0h3m1 0h1m2 0h1m1 0h1m2 0h1m2 0h1m3 0h1m1 0h1m2 0h1m1 0h3m1 0h1m-33 1h1m5 0h1m1 0h1m6 0h2m2 0h1m2 0h1m1 0h1m1 0h1m5 0h1m-33 1h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7m-24 1h2m1 0h1m1 0h6m1 0h1m2 0h1m-25 1h1m2 0h1m1 0h2m1 0h1m2 0h1m1 0h2m1 0h1m4 0h1m3 0h1m1 0h1m-28 1h4m3 0h1m2 0h2m1 0h2m1 0h3m1 0h1m1 0h1m1 0h4m4 0h1m-32 1h2m3 0h1m4 0h1m1 0h2m1 0h1m2 0h4m1 0h1m2 0h2m1 0h1m1 0h1m-33 1h1m1 0h1m1 0h1m5 0h4m1 0h1m2 0h1m2 0h3m4 0h2m2 0h1m-31 1h2m1 0h2m1 0h3m3 0h4m1 0h3m2 0h3m2 0h1m1 0h2m-33 1h1m3 0h2m1 0h1m1 0h1m1 0h5m1 0h1m1 0h1m1 0h1m2 0h3m1 0h1m2 0h2m-33 1h1m1 0h2m1 0h4m6 0h3m2 0h2m1 0h5m1 0h3m-31 1h2m1 0h1m2 0h3m1 0h1m4 0h2m2 0h2m4 0h1m1 0h2m1 0h1m-31 1h1m3 0h2m1 0h2m1 0h1m1 0h1m1 0h1m1 0h1m2 0h3m3 0h1m1 0h1m2 0h1m-28 1h1m2 0h1m1 0h1m1 0h1m1 0h1m2 0h1m3 0h2m1 0h3m1 0h1m1 0h1m-29 1h2m1 0h3m1 0h6m2 0h1m9 0h1m3 0h3m-33 1h1m2 0h3m1 0h3m7 0h2m2 0h3m3 0h1m3 0h1m-32 1h3m2 0h2m1 0h2m1 0h1m1 0h1m1 0h2m2 0h1m1 0h1m1 0h1m8 0h1m-31 1h3m3 0h1m2 0h2m2 0h1m2 0h1m2 0h2m1 0h3m3 0h3m-33 1h3m1 0h3m1 0h2m1 0h1m1 0h2m3 0h2m4 0h1m1 0h1m1 0h3m1 0h1m-32 1h1m2 0h1m3 0h2m1 0h1m1 0h1m1 0h1m3 0h1m1 0h2m3 0h2m1 0h1m2 0h1m-33 1h1m1 0h1m1 0h1m1 0h1m1 0h1m2 0h1m4 0h2m3 0h2m1 0h5m-21 1h1m1 0h2m1 0h1m2 0h4m3 0h2m3 0h2m1 0h2m-33 1h7m2 0h4m3 0h1m1 0h1m3 0h1m1 0h1m1 0h1m1 0h4m-32 1h1m5 0h1m1 0h1m1 0h2m2 0h1m2 0h2m1 0h3m1 0h1m3 0h1m-29 1h1m1 0h3m1 0h1m2 0h1m1 0h4m2 0h1m1 0h4m1 0h6m2 0h1m-33 1h1m1 0h3m1 0h1m1 0h1m1 0h2m3 0h1m2 0h1m3 0h3m1 0h1m1 0h2m-30 1h1m1 0h3m1 0h1m5 0h1m1 0h1m1 0h1m3 0h1m1 0h1m5 0h2m2 0h1m-33 1h1m5 0h1m5 0h1m1 0h2m1 0h2m2 0h2m1 0h3m-27 1h7m1 0h1m1 0h2m1 0h1m2 0h1m3 0h3m1 0h2m2 0h1m2 0h1"/></svg>
+        <div>
+          <strong>QR-карточка в номере 305</strong>
+          <span>Наведите камеру телефона — откроется гостевой сервис этого номера (FR-01). В отеле карточка лежит на столе: гость ничего не устанавливает и не регистрируется.</span>
+        </div>
+      </div>
       <div class="entries">
         <a class="entry" href="#guest"><strong>Я гость</strong><span>Номер 305: заказать уборку, полотенца или вызвать инженера</span></a>
         <a class="entry" href="#staff"><strong>Я сотрудник</strong><span>Горничная, инженер, ресепшен, управляющий или директор по операциям</span></a>
@@ -494,7 +518,7 @@ function workerView(state, me) {
 // FR-13, FR-14: все открытые запросы отеля, просроченные — в начале; FR-16: запрос от имени гостя
 function adminView(state) {
   const list = state.requests.filter(r => OPEN.includes(r.status))
-    .sort((a, b) => (isLate(state, b) - isLate(state, a)) || (a.createdAt - b.createdAt));
+    .sort((a, b) => (needsAttention(state, b) - needsAttention(state, a)) || (a.createdAt - b.createdAt));
   const rooms = occupiedRooms(state);
   return `
     <form class="panel" id="admin-form">
@@ -593,6 +617,7 @@ function staffCard(state, r, isAdmin) {
   const s = SERVICES[r.service];
   const mins = minutesSince(state, r.createdAt);
   const late = isLate(state, r);
+  const overNorm = isOverNorm(state, r);
   const deptStaff = state.staff.filter(p => p.dept === s.dept && !p.blocked);
   let actions = "";
   if (r.status === "sent" && !isAdmin) actions = `<button class="primary" data-accept="${r.id}">Принять</button>`;
@@ -603,12 +628,12 @@ function staffCard(state, r, isAdmin) {
   if (r.status === "accepted" && r.assignee === ui.role) actions = `<button class="primary" data-done="${r.id}">Выполнено</button>`;
   if (r.status === "accepted" && r.assignee !== ui.role) actions = `<span class="hint">Принял(а): ${esc(staffName(state, r.assignee))}</span>`;
   return `
-    <div class="card ${late ? "late" : ""}">
+    <div class="card ${late || overNorm ? "late" : ""}">
       <div class="card-top">
         <span class="card-title">Номер <span class="mono">${esc(r.room)}</span> · ${s.title}</span>
         ${pill(state, r)}
       </div>
-      <p>${DEPTS[s.dept]} · отправлен <span class="mono">${mins}</span> мин назад · ${s.norm ? `норматив ${s.norm} мин` : "норматив не установлен"}${r.by === "admin" ? " · создан ресепшеном" : ""}${r.example ? " · пример" : ""}</p>
+      <p>${DEPTS[s.dept]} · отправлен <span class="mono">${mins}</span> мин назад · ${s.norm ? `норматив ${s.norm} мин` : "норматив не установлен"}${overNorm ? ` · <span class="over-norm">вышел из норматива</span>` : ""}${r.by === "admin" ? " · создан ресепшеном" : ""}${r.example ? " · пример" : ""}</p>
       ${r.comment ? `<p>«${esc(r.comment)}»</p>` : ""}
       ${actions ? `<div class="actions">${actions}</div>` : ""}
     </div>`;
